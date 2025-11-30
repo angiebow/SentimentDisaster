@@ -12,10 +12,10 @@ from sklearn.svm import SVC
 from sklearn.metrics import classification_report, accuracy_score
 import joblib
 
-API_KEY = "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" 
+API_KEY = "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" 
 
-INPUT_FOLDER = './' 
-OUTPUT_FILE = 'labeled_sentiment_data.csv'
+INPUT_FOLDER = './ric' 
+OUTPUT_FILE = 'labeled_sentiment_data_ric.csv'
 MODEL_FILE = 'svm_sentiment_model.pkl'
 
 def get_llm_label(text):
