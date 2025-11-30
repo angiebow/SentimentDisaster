@@ -77,4 +77,4 @@ else:
     output_path = folder_path + 'final_disaster_map.geojson'
     gdf.to_file(output_path, driver='GeoJSON')
     
-    print(f"\n✅ SUCCESS! Download your map file here: {output_path}")
+    print(f"\nSUCCESS! Download your map file here: {output_path}")

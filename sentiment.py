@@ -142,4 +142,4 @@ print(classification_report(y_test, predictions))
 
 joblib.dump(svm_student, MODEL_FILE)
 joblib.dump(vectorizer, 'tfidf_vectorizer.pkl')
-print("✅ Done! Student model saved.")
+print("Done! Student model saved.")
