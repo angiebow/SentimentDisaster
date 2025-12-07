@@ -1,0 +1,31 @@
+# Core scraping / preprocessing
+scrapy
+scrapy-useragents
+scrapy-playwright
+playwright
+dateparser
+bs4
+beautifulsoup4
+requests
+tqdm
+
+# NLP & geocoding
+spacy
+geopy
+geopandas
+shapely
+google-generativeai
+
+# ML / sentiment
+scikit-learn
+pandas
+numpy
+joblib
+python-dotenv
+
+# Visualization
+matplotlib
+seaborn
+
+# Optional: LLM clients / api helpers
+openai
