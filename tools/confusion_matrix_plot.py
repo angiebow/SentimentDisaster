@@ -9,11 +9,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.svm import LinearSVC
 
 ROOT = Path(__file__).resolve().parents[1]
+LABELED_DATA = ROOT / "shared_data" / "labeled_sentiment_data_unified.csv"
 
 # -----------------------------
 # 1. LOAD LABELED DATA
 # -----------------------------
-df = pd.read_csv(ROOT / "labeled_sentiment_data_unified.csv")
+df = pd.read_csv(LABELED_DATA)
 
 text_col = "cleaned_content"
 label_col = "sentiment_label"

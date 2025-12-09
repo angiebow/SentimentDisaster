@@ -1,14 +1,4 @@
-"""
-Job 1: gabung & preprocess data untuk Random Forest (tanpa LLM).
-Output ini dipakai oleh tahap labeling LLM (Job 2).
-
-Contoh run:
-poetry run python random_forest/preprocess_merge.py ^
-  --data-dir ./unified ^
-  --pattern "processed_*.csv" ^
-  --output random_forest/output_rf/merged_clean_rf.csv
-"""
-
+"""Shared preprocess+merge job for Random Forest and SVM students."""
 import argparse
 import glob
 import os
@@ -17,14 +7,27 @@ from typing import List, Optional
 
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_DIR = ROOT / "unified"
+DEFAULT_PATTERN = "processed_*.csv"
+DEFAULT_OUTPUT = ROOT / "artifacts" / "random_forest" / "merged_clean_rf.csv"
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Preprocess & merge data untuk RF (tanpa LLM).")
-    parser.add_argument("--data-dir", default="./unified", help="Folder sumber processed_*.csv.")
-    parser.add_argument("--pattern", default="processed_*.csv", help="Pola file yang akan dibaca.")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Preprocess & merge processed_*.csv files into one dataset.")
+    parser.add_argument(
+        "--data-dir",
+        default=str(DEFAULT_DATA_DIR),
+        help="Folder sumber processed_*.csv (umumnya ./unified).",
+    )
+    parser.add_argument(
+        "--pattern",
+        default=DEFAULT_PATTERN,
+        help="Pola nama file yang akan dibaca.",
+    )
     parser.add_argument(
         "--output",
-        default="random_forest/output_rf/merged_clean_rf.csv",
+        default=str(DEFAULT_OUTPUT),
         help="Lokasi keluaran CSV hasil gabung/bersih.",
     )
     parser.add_argument("--max-rows", type=int, default=None, help="Batasi jumlah baris (opsional).")
@@ -36,11 +39,7 @@ def list_data_files(data_dir: str, pattern: str) -> List[str]:
 
 
 def extract_metadata_from_filename(filename: str):
-    """
-    Contoh nama: processed_Klungkung_Banjir_CNN.csv
-    Hasil:
-        Location=Klungkung, Disaster=Banjir, Source=CNN
-    """
+    """Tambahkan kolom metadata dari nama file (Location, Disaster, Source)."""
     base = os.path.basename(filename).replace(".csv", "")
     parts = base.split("_")
     if len(parts) >= 4:
@@ -69,8 +68,8 @@ def load_and_prepare_data(data_dir: str, pattern: str, max_rows: Optional[int] =
             for k, v in meta.items():
                 df[k] = v
             dfs.append(df)
-        except Exception as e:
-            print(f"Gagal baca {path}: {e}")
+        except Exception as exc:
+            print(f"Gagal baca {path}: {exc}")
 
     if not dfs:
         return pd.DataFrame()
@@ -82,7 +81,7 @@ def load_and_prepare_data(data_dir: str, pattern: str, max_rows: Optional[int] =
     return merged
 
 
-def main():
+def main() -> None:
     args = parse_args()
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
 

@@ -6,14 +6,14 @@ import pandas as pd
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
-SVM_DIR = Path(__file__).resolve().parent
+ARTIFACTS_SVM = ROOT / "artifacts" / "svm"
 
 # -------------------------------
 # Load models
 # -------------------------------
 print("Loading TF-IDF vectorizer & SVM model...")
-vectorizer = joblib.load(SVM_DIR / "sentiment_models" / "tfidf_vectorizer.pkl")
-svm_model = joblib.load(SVM_DIR / "sentiment_models" / "svm_sentiment_model_unified.pkl")
+vectorizer = joblib.load(ARTIFACTS_SVM / "tfidf_vectorizer.pkl")
+svm_model = joblib.load(ARTIFACTS_SVM / "svm_sentiment_model_unified.pkl")
 
 # -------------------------------
 # Load GeoJSON

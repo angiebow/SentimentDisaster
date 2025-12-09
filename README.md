@@ -59,34 +59,28 @@ This project uses **Poetry** for environment and dependency management.
 - `poetry run python -m spacy download xx_ent_wiki_sm`
 - Salin `.env.example` → `.env`, isi `OPENROUTER_API_KEY` (LLM labeling) dan `GOOGLE_API_KEY` jika perlu.
 
-### Random Forest (LLM guru → RF siswa)
-1) Preprocess:  
-   `poetry run python random_forest/preprocess_merge.py --data-dir ./unified --pattern "processed_*.csv" --output random_forest/output_rf/merged_clean_rf.csv`
-2) Label dengan LLM:  
-   `poetry run python random_forest/label_with_llm.py --input random_forest/output_rf/merged_clean_rf.csv --output random_forest/output_rf/labeled_sentiment_data_rf.csv --api-key <OPENROUTER_API_KEY>`
-   - Jika sudah ada `labeled_sentiment_data_unified.csv`, bisa langsung pakai itu (lewati 1–2).
-3) Train & evaluasi RF:  
-   `poetry run python random_forest/train_and_evaluate_rf.py --data random_forest/output_rf/labeled_sentiment_data_rf.csv --bigrams --class-weight balanced --n-estimators 800 --max-features 15000 --oversample-minority --neutral-weight 0.7`
-   - Output model/vectorizer/report/CM di `random_forest/output_rf/`. Bisa ganti `--data` ke `labeled_sentiment_data_unified.csv` untuk banding dengan SVM.
+### Pipeline Bersama (LLM guru → siswa)
+1) Preprocess (opsional) untuk membuat gabungan baru:  
+  `poetry run python pipelines/preprocess_merge.py --data-dir ./unified --pattern "processed_*.csv" --output artifacts/random_forest/merged_clean_rf.csv`
+2) Label dengan LLM satu kali untuk seluruh siswa:  
+  `poetry run python pipelines/label_dataset.py --input-csv artifacts/random_forest/merged_clean_rf.csv --output shared_data/labeled_sentiment_data_unified.csv --api-key <OPENROUTER_API_KEY>`
+  - Bisa juga langsung memakai pola default (`--input-pattern "unified/processed_*.csv"`) tanpa membuat file gabungan manual.
+3) Latih model siswa menggunakan dataset yang sama:
+  - SVM: `poetry run python pipelines/train_model.py --model svm --data shared_data/labeled_sentiment_data_unified.csv`
+  - RF: `poetry run python pipelines/train_model.py --model rf --data shared_data/labeled_sentiment_data_unified.csv --bigrams --class-weight balanced --n-estimators 800 --max-features 15000 --oversample-minority --neutral-weight 0.7`
 
-### SVM (LLM guru → SVM siswa)
-- Label + train:  
-  `poetry run python svm/sentiment.py`
-  - Input: `./unified/processed_*.csv`
-  - Output label: `labeled_sentiment_data_unified.csv`
-  - Model: `svm/sentiment_models/svm_sentiment_model_unified.pkl` + `svm/sentiment_models/tfidf_vectorizer.pkl`
-- Utilitas:  
-  - Confusion matrix plot: `poetry run python svm/confusion_matrix_plot.py`
-  - Tambah sentimen ke GeoJSON: `poetry run python svm/sentiment_map.py`
+Keduanya memakai **file label yang sama** (mis. `shared_data/labeled_sentiment_data_unified.csv`) agar gap akurasi hanya berasal dari model, bukan dari data. Jalankan `pipelines/label_dataset.py` sekali saja lalu reuse hasilnya untuk perbandingan SVM ↔ RF.
 
-### Membandingkan SVM vs Random Forest (paralel, tidak berurutan)
-- Keduanya memakai **label LLM yang sama** (guru) untuk fairness; siswa yang berbeda (SVM vs RF).
-- Jika sudah ada `labeled_sentiment_data_unified.csv`, langsung pakai file itu untuk keduanya (tanpa LLM ulang):
-  - SVM (model di `svm/sentiment_models/` atau latih ulang dengan `svm/sentiment.py`).
-  - RF: `poetry run python random_forest/train_and_evaluate_rf.py --data labeled_sentiment_data_unified.csv`
-- Jika belum ada label, jalankan langkah labeling LLM sekali saja, lalu gunakan file label yang sama untuk SVM/RF. Dengan begitu keduanya berjalan paralel, tidak sequential satu sama lain.
+### Utilitas Analisis & Visualisasi
+- Confusion matrix SVM (training cepat + plot): `poetry run python tools/confusion_matrix_plot.py`
+- Contoh matriks statis: `poetry run python tools/confusion_matrix.py`
+- Tambah sentimen siswa (SVM) ke GeoJSON: `poetry run python tools/sentiment_map.py`
+
+Seluruh utilitas di atas mengakses artefak siswa melalui `artifacts/svm/` sehingga tidak lagi bergantung pada folder `svm/` lama.
 
 ### Struktur folder (rapi)
-- `svm/`: semua skrip & model khusus SVM (sentiment.py, sentiment_map.py, confusion_matrix*.py, sentiment_models/).
-- `random_forest/`: semua skrip & artefak khusus Random Forest.
-- Akar repo (root): data universal & utilitas bersama (mis. `labeled_sentiment_data_unified.csv`, `final_data/`, `geojson/`, `location_extractor.py`, dsb). Pakai dari kedua pipeline.
+- `pipelines/`: seluruh pipeline generik (`preprocess_merge.py`, `label_dataset.py`, `train_model.py`).
+- `shared_data/`: hasil labeling gabungan (`labeled_sentiment_data_unified.csv`) yang dipakai bersama siswa.
+- `artifacts/`: output pelatihan siswa (model/vectorizer SVM dan laporan Random Forest).
+- `tools/`: utilitas analisis & visualisasi (confusion matrix, sentiment map, dll).
+- Akar repo (root): data universal & utilitas bersama (`final_data/`, `geojson/`, `location_extractor.py`, dsb).
