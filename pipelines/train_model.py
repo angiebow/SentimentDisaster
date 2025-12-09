@@ -25,6 +25,13 @@ SVM_VECTORIZER_PATH = ARTIFACTS_ROOT / "svm" / "tfidf_vectorizer.pkl"
 RF_OUTPUT_DIR = ARTIFACTS_ROOT / "random_forest"
 
 
+def log_dataset_stats(stage: str, labels: pd.Series) -> None:
+    """Print class distribution for easier comparison between runs."""
+    print(f"\n[{stage}] total samples: {len(labels)}")
+    distribution = labels.value_counts().sort_index()
+    print(distribution.to_string())
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train an SVM or Random Forest student on the unified labeled dataset.")
     parser.add_argument("--model", choices=["svm", "rf"], required=True, help="Model to train.")
@@ -49,6 +56,28 @@ def parse_args() -> argparse.Namespace:
         "--svm-vectorizer-path",
         default=str(SVM_VECTORIZER_PATH),
         help="Output path for SVM TF-IDF vectorizer.",
+    )
+    parser.add_argument(
+        "--svm-output-dir",
+        default=str(ARTIFACTS_ROOT / "svm"),
+        help="Directory for SVM artifacts (report/confusion matrix).",
+    )
+    parser.add_argument("--svm-prefix", default="svm", help="Filename prefix for SVM artifacts.")
+    parser.add_argument(
+        "--svm-class-weight",
+        choices=["balanced", "none"],
+        default="balanced",
+        help="Use sklearn's class_weight handling for SVM.",
+    )
+    parser.add_argument(
+        "--svm-oversample-minority",
+        action="store_true",
+        help="Naive oversampling of minority classes before vectorization (SVM only).",
+    )
+    parser.add_argument(
+        "--svm-legacy-mode",
+        action="store_true",
+        help="Revert to legacy flow (vectorize seluruh data sebelum split).",
     )
 
     # Random Forest specific options
@@ -91,20 +120,101 @@ def load_dataset(path: Path, text_col: str, label_col: str) -> pd.DataFrame:
 
 
 def train_svm(args: argparse.Namespace, df: pd.DataFrame):
-    vectorizer = TfidfVectorizer(max_features=args.max_features)
-    X = vectorizer.fit_transform(df[args.text_col])
-    y = df[args.label_col]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=args.test_size, random_state=args.random_state, stratify=y
-    )
+    texts = df[args.text_col]
+    labels = df[args.label_col]
+    log_dataset_stats("Dataset", labels)
 
-    clf = SVC(kernel="linear", random_state=args.random_state)
+    if args.svm_legacy_mode:
+        if args.svm_oversample_minority:
+            print("Peringatan: opsi --svm-oversample-minority diabaikan pada legacy mode.")
+        vectorizer = TfidfVectorizer(max_features=args.max_features)
+        X = vectorizer.fit_transform(texts)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            labels,
+            test_size=args.test_size,
+            random_state=args.random_state,
+            stratify=labels,
+        )
+        log_dataset_stats("Train", y_train)
+        log_dataset_stats("Test", y_test)
+    else:
+        X_train_text, X_test_text, y_train, y_test = train_test_split(
+            texts,
+            labels,
+            test_size=args.test_size,
+            random_state=args.random_state,
+            stratify=labels,
+        )
+        log_dataset_stats("Train", y_train)
+        log_dataset_stats("Test", y_test)
+
+        if args.svm_oversample_minority:
+            train_df = pd.DataFrame({args.text_col: X_train_text, args.label_col: y_train})
+            counts = train_df[args.label_col].value_counts()
+            target = counts.max()
+            balanced_parts = []
+            for cls, cnt in counts.items():
+                cls_df = train_df[train_df[args.label_col] == cls]
+                reps = max(1, target // cnt)
+                extra = target - cnt * reps
+                duplicated = pd.concat([cls_df] * reps, ignore_index=True)
+                if extra > 0:
+                    duplicated = pd.concat(
+                        [duplicated, cls_df.sample(n=extra, replace=True, random_state=args.random_state)],
+                        ignore_index=True,
+                    )
+                balanced_parts.append(duplicated)
+            balanced_df = pd.concat(balanced_parts, ignore_index=True)
+            X_train_text = balanced_df[args.text_col]
+            y_train = balanced_df[args.label_col]
+            log_dataset_stats("Train (oversampled)", y_train)
+
+        vectorizer = TfidfVectorizer(max_features=args.max_features)
+        X_train = vectorizer.fit_transform(X_train_text)
+        X_test = vectorizer.transform(X_test_text)
+
+    class_weight = None if args.svm_class_weight == "none" else args.svm_class_weight
+    clf = SVC(kernel="linear", random_state=args.random_state, class_weight=class_weight)
     clf.fit(X_train, y_train)
 
     preds = clf.predict(X_test)
-    print("Accuracy:", accuracy_score(y_test, preds))
+    accuracy = accuracy_score(y_test, preds)
+    report = classification_report(y_test, preds, digits=4, zero_division=0)
+    cm = confusion_matrix(y_test, preds, labels=clf.classes_)
+
+    print("Accuracy:", accuracy)
     print("\nClassification Report:\n")
-    print(classification_report(y_test, preds))
+    print(report)
+    print("Confusion Matrix:")
+    print(cm)
+
+    output_dir = Path(args.svm_output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / f"{args.svm_prefix}_classification_report.txt"
+    with report_path.open("w", encoding="utf-8") as fh:
+        fh.write(f"Accuracy: {accuracy:.4f}\n\n")
+        fh.write("Classification Report\n")
+        fh.write(report)
+        fh.write("\nConfusion Matrix\n")
+        fh.write(str(cm))
+
+    plt.figure(figsize=(6, 4))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Purples",
+        xticklabels=clf.classes_,
+        yticklabels=clf.classes_,
+    )
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix (SVM)")
+    plt.tight_layout()
+    cm_path = output_dir / f"{args.svm_prefix}_confusion_matrix.png"
+    plt.savefig(cm_path)
+    plt.close()
 
     model_path = Path(args.svm_model_path)
     vectorizer_path = Path(args.svm_vectorizer_path)
@@ -114,11 +224,13 @@ def train_svm(args: argparse.Namespace, df: pd.DataFrame):
     joblib.dump(vectorizer, vectorizer_path)
     print(f"SVM model saved to {model_path}")
     print(f"TF-IDF vectorizer saved to {vectorizer_path}")
+    print(f"SVM report & confusion matrix saved to {output_dir}")
 
 
 def train_random_forest(args: argparse.Namespace, df: pd.DataFrame):
     X = df[args.text_col]
     y = df[args.label_col]
+    log_dataset_stats("Dataset", y)
     X_train_raw, X_test_raw, y_train, y_test = train_test_split(
         X,
         y,
@@ -126,6 +238,8 @@ def train_random_forest(args: argparse.Namespace, df: pd.DataFrame):
         random_state=args.random_state,
         stratify=y,
     )
+    log_dataset_stats("Train (raw)", y_train)
+    log_dataset_stats("Test", y_test)
 
     if args.oversample_minority:
         train_df = pd.DataFrame({args.text_col: X_train_raw, args.label_col: y_train})
@@ -146,6 +260,7 @@ def train_random_forest(args: argparse.Namespace, df: pd.DataFrame):
         train_balanced = pd.concat(balanced_parts, ignore_index=True)
         X_train_raw = train_balanced[args.text_col]
         y_train = train_balanced[args.label_col]
+        log_dataset_stats("Train (oversampled)", y_train)
 
     vectorizer = TfidfVectorizer(
         max_features=args.max_features,
@@ -171,9 +286,11 @@ def train_random_forest(args: argparse.Namespace, df: pd.DataFrame):
     clf.fit(X_train, y_train, sample_weight=sample_weight)
     y_pred = clf.predict(X_test)
 
+    accuracy = accuracy_score(y_test, y_pred)
     report = classification_report(y_test, y_pred, digits=4)
     cm = confusion_matrix(y_test, y_pred, labels=clf.classes_)
 
+    print("Accuracy:", accuracy)
     print("\nClassification Report:\n")
     print(report)
     print("Confusion Matrix:")
@@ -184,6 +301,7 @@ def train_random_forest(args: argparse.Namespace, df: pd.DataFrame):
 
     report_path = output_dir / f"{args.rf_prefix}_classification_report.txt"
     with report_path.open("w", encoding="utf-8") as fh:
+        fh.write(f"Accuracy: {accuracy:.4f}\n\n")
         fh.write("Classification Report\n")
         fh.write(report)
         fh.write("\nConfusion Matrix\n")
