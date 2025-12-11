@@ -3,6 +3,12 @@ import json
 import os
 import pandas as pd
 import re
+from pathlib import Path
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[0]
+load_dotenv(ROOT / ".env")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Define parameters for the API request
 temperature = 0.1
@@ -14,10 +20,12 @@ os.makedirs(valid_news_folder, exist_ok=True)
 
 def is_news(cleaned_content):
     """Check if the cleaned_content is a news article using LLM."""
+    if not OPENROUTER_API_KEY:
+        return False
     response = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
         headers={
-            "Authorization": "Bearer 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",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
         },
         data=json.dumps({
